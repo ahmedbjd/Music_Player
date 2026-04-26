@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:audioplayers/audioplayers.dart';
+import 'package:flutter/services.dart';
 import 'liked_screen.dart';
 
 import 'package:first_app/db/db_helper.dart';
@@ -53,7 +53,7 @@ class _MusicPlayerState extends State<MusicPlayer>
          WidgetsBindingObserver,
          RouteAware {
 
-  final AudioPlayer _audioPlayer = AudioPlayer();
+  static const platform = MethodChannel('com.example.music/service');
   late AnimationController _rotationController;
 
   bool isPlaying = false;
@@ -92,14 +92,17 @@ class _MusicPlayerState extends State<MusicPlayer>
     routeObserver.unsubscribe(this);
     WidgetsBinding.instance.removeObserver(this);
     _rotationController.dispose();
-    _audioPlayer.dispose();
     super.dispose();
   }
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) async {
     if (state == AppLifecycleState.paused) {
-      await _audioPlayer.pause();
+      try {
+        await platform.invokeMethod('pauseService');
+      } catch (e) {
+        debugPrint('Error pausing service: $e');
+      }
       _rotationController.stop();
 
       setState(() {
@@ -108,7 +111,13 @@ class _MusicPlayerState extends State<MusicPlayer>
     }
 
     if (state == AppLifecycleState.resumed && !isPlaying) {
-      await _audioPlayer.resume();
+      try {
+        await platform.invokeMethod('startService', {
+          'filename': musicList[currentMusicIndex]['file']!,
+        });
+      } catch (e) {
+        debugPrint('Error resuming service: $e');
+      }
       _rotationController.repeat();
 
       setState(() {
@@ -120,7 +129,11 @@ class _MusicPlayerState extends State<MusicPlayer>
 
   @override
   void didPushNext() async {
-    await _audioPlayer.pause();
+    try {
+      await platform.invokeMethod('pauseService');
+    } catch (e) {
+      debugPrint('Error pausing service: $e');
+    }
     _rotationController.stop();
 
     setState(() {
@@ -130,7 +143,13 @@ class _MusicPlayerState extends State<MusicPlayer>
 
   @override
   void didPopNext() async {
-    await _audioPlayer.resume();
+    try {
+      await platform.invokeMethod('startService', {
+        'filename': musicList[currentMusicIndex]['file']!,
+      });
+    } catch (e) {
+      debugPrint('Error resuming service: $e');
+    }
     _rotationController.repeat();
 
     setState(() {
@@ -143,12 +162,20 @@ class _MusicPlayerState extends State<MusicPlayer>
     showControls = true;
 
     if (isPlaying) {
-      await _audioPlayer.pause();
+      try {
+        await platform.invokeMethod('pauseService');
+      } catch (e) {
+        debugPrint('Error pausing service: $e');
+      }
       _rotationController.stop();
     } else {
-      await _audioPlayer.play(
-        AssetSource(musicList[currentMusicIndex]['file']!),
-      );
+      try {
+        await platform.invokeMethod('startService', {
+          'filename': musicList[currentMusicIndex]['file']!,
+        });
+      } catch (e) {
+        debugPrint('Error starting service: $e');
+      }
       _rotationController.repeat();
     }
 
@@ -158,14 +185,22 @@ class _MusicPlayerState extends State<MusicPlayer>
   }
 
   Future<void> nextSong() async {
-    await _audioPlayer.stop();
+    try {
+      await platform.invokeMethod('stopService');
+    } catch (e) {
+      debugPrint('Error stopping service: $e');
+    }
 
     currentMusicIndex =
         (currentMusicIndex + 1) % musicList.length;
 
-    await _audioPlayer.play(
-      AssetSource(musicList[currentMusicIndex]['file']!),
-    );
+    try {
+      await platform.invokeMethod('startService', {
+        'filename': musicList[currentMusicIndex]['file']!,
+      });
+    } catch (e) {
+      debugPrint('Error starting service: $e');
+    }
 
     _rotationController.repeat();
 
@@ -175,15 +210,23 @@ class _MusicPlayerState extends State<MusicPlayer>
   }
 
   Future<void> previousSong() async {
-    await _audioPlayer.stop();
+    try {
+      await platform.invokeMethod('stopService');
+    } catch (e) {
+      debugPrint('Error stopping service: $e');
+    }
 
     currentMusicIndex =
         (currentMusicIndex - 1 + musicList.length) %
             musicList.length;
 
-    await _audioPlayer.play(
-      AssetSource(musicList[currentMusicIndex]['file']!),
-    );
+    try {
+      await platform.invokeMethod('startService', {
+        'filename': musicList[currentMusicIndex]['file']!,
+      });
+    } catch (e) {
+      debugPrint('Error starting service: $e');
+    }
 
     _rotationController.repeat();
 
