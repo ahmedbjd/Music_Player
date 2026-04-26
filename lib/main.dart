@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'liked_screen.dart';
@@ -54,7 +56,10 @@ class _MusicPlayerState extends State<MusicPlayer>
          RouteAware {
 
   static const platform = MethodChannel('com.example.music/service');
+  static const playbackEvents =
+      EventChannel('com.example.music/playback_events');
   late AnimationController _rotationController;
+  StreamSubscription<dynamic>? _playbackSubscription;
 
   bool isPlaying = false;
 
@@ -79,6 +84,29 @@ class _MusicPlayerState extends State<MusicPlayer>
       vsync: this,
       duration: const Duration(seconds: 10),
     );
+
+    _playbackSubscription = playbackEvents.receiveBroadcastStream().listen(
+      (dynamic event) {
+        final playing = event == true;
+
+        if (!mounted) {
+          return;
+        }
+
+        if (playing) {
+          _rotationController.repeat();
+        } else {
+          _rotationController.stop();
+        }
+
+        setState(() {
+          isPlaying = playing;
+        });
+      },
+      onError: (Object error) {
+        debugPrint('Playback event error: $error');
+      },
+    );
   }
 
   @override
@@ -89,6 +117,7 @@ class _MusicPlayerState extends State<MusicPlayer>
 
   @override
   void dispose() {
+    _playbackSubscription?.cancel();
     routeObserver.unsubscribe(this);
     WidgetsBinding.instance.removeObserver(this);
     _rotationController.dispose();

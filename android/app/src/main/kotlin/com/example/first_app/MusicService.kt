@@ -27,7 +27,11 @@ class MusicService : Service() {
         const val ACTION_PLAY = "com.example.first_app.PLAY"
         const val ACTION_PAUSE = "com.example.first_app.PAUSE"
         const val ACTION_STOP = "com.example.first_app.STOP"
+        const val ACTION_PLAYBACK_STATE_CHANGED = "com.example.first_app.PLAYBACK_STATE_CHANGED"
         const val EXTRA_ASSET_FILENAME = "asset_filename"
+        const val EXTRA_IS_PLAYING = "is_playing"
+        @Volatile
+        var isPlayingNow = false
     }
 
     override fun onCreate() {
@@ -48,7 +52,9 @@ class MusicService : Service() {
             }
             ACTION_STOP -> {
                 stopAudio()
+                stopForeground(STOP_FOREGROUND_REMOVE)
                 stopSelf()
+                exitApp()
             }
         }
         return START_STICKY
@@ -68,15 +74,18 @@ class MusicService : Service() {
             mediaPlayer = MediaPlayer().apply {
                 setDataSource(cacheFile.absolutePath)
                 setOnCompletionListener {
+                    updatePlaybackState(false)
                     stopForeground(STOP_FOREGROUND_DETACH)
                 }
                 prepare()
                 start()
             }
+            updatePlaybackState(true)
 
             // Show persistent notification
             showNotification(true)
         } catch (e: Exception) {
+            updatePlaybackState(false)
             e.printStackTrace()
         }
     }
@@ -88,6 +97,7 @@ class MusicService : Service() {
                     pause()
                 }
             }
+            updatePlaybackState(false)
             showNotification(false)
         } catch (e: Exception) {
             e.printStackTrace()
@@ -103,6 +113,7 @@ class MusicService : Service() {
                 release()
             }
             mediaPlayer = null
+            updatePlaybackState(false)
         } catch (e: Exception) {
             e.printStackTrace()
         }
@@ -216,10 +227,30 @@ class MusicService : Service() {
         }
     }
 
+    private fun updatePlaybackState(isPlaying: Boolean) {
+        isPlayingNow = isPlaying
+        val stateIntent = Intent(ACTION_PLAYBACK_STATE_CHANGED).apply {
+            setPackage(packageName)
+            putExtra(EXTRA_IS_PLAYING, isPlaying)
+        }
+        sendBroadcast(stateIntent)
+    }
+
+    private fun exitApp() {
+        val exitIntent = Intent(this, MainActivity::class.java).apply {
+            putExtra(MainActivity.EXTRA_EXIT_APP, true)
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP)
+            addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP)
+        }
+        startActivity(exitIntent)
+    }
+
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onDestroy() {
         super.onDestroy()
+        updatePlaybackState(false)
         stopAudio()
     }
 }
