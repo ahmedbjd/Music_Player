@@ -127,63 +127,25 @@ class _MusicPlayerState extends State<MusicPlayer>
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) async {
     if (state == AppLifecycleState.paused) {
-      try {
-        await platform.invokeMethod('pauseService');
-      } catch (e) {
-        debugPrint('Error pausing service: $e');
-      }
       _rotationController.stop();
-
-      setState(() {
-        isPlaying = false;
-      });
     }
 
-    if (state == AppLifecycleState.resumed && !isPlaying) {
-      try {
-        await platform.invokeMethod('startService', {
-          'filename': musicList[currentMusicIndex]['file']!,
-        });
-      } catch (e) {
-        debugPrint('Error resuming service: $e');
-      }
+    if (state == AppLifecycleState.resumed && isPlaying) {
       _rotationController.repeat();
-
-      setState(() {
-        isPlaying = true;
-      });
     }
   }
 
 
   @override
   void didPushNext() async {
-    try {
-      await platform.invokeMethod('pauseService');
-    } catch (e) {
-      debugPrint('Error pausing service: $e');
-    }
     _rotationController.stop();
-
-    setState(() {
-      isPlaying = false;
-    });
   }
 
   @override
   void didPopNext() async {
-    try {
-      await platform.invokeMethod('startService', {
-        'filename': musicList[currentMusicIndex]['file']!,
-      });
-    } catch (e) {
-      debugPrint('Error resuming service: $e');
+    if (isPlaying) {
+      _rotationController.repeat();
     }
-    _rotationController.repeat();
-
-    setState(() {
-      isPlaying = true;
-    });
   }
 
 
