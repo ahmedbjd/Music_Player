@@ -27,6 +27,7 @@ class MusicService : Service() {
         const val ACTION_PLAY = "com.example.first_app.PLAY"
         const val ACTION_PAUSE = "com.example.first_app.PAUSE"
         const val ACTION_STOP = "com.example.first_app.STOP"
+        const val ACTION_STOP_AND_EXIT = "com.example.first_app.STOP_AND_EXIT"
         const val ACTION_PLAYBACK_STATE_CHANGED = "com.example.first_app.PLAYBACK_STATE_CHANGED"
         const val EXTRA_ASSET_FILENAME = "asset_filename"
         const val EXTRA_IS_PLAYING = "is_playing"
@@ -51,6 +52,11 @@ class MusicService : Service() {
                 pauseAudio()
             }
             ACTION_STOP -> {
+                stopAudio()
+                stopForeground(STOP_FOREGROUND_REMOVE)
+                stopSelf()
+            }
+            ACTION_STOP_AND_EXIT -> {
                 stopAudio()
                 stopForeground(STOP_FOREGROUND_REMOVE)
                 stopSelf()
@@ -187,7 +193,7 @@ class MusicService : Service() {
 
         // Stop action
         val stopIntent = Intent(this, MusicService::class.java).apply {
-            action = ACTION_STOP
+            action = ACTION_STOP_AND_EXIT
         }
         val stopPendingIntent = PendingIntent.getService(
             this,
