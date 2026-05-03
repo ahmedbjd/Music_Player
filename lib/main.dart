@@ -1,38 +1,15 @@
 import 'dart:async';
 
 import 'package:first_app/db/db_helper.dart';
+import 'package:first_app/services/audio_player_service.dart';
 import 'package:flutter/material.dart';
-import 'package:just_audio/just_audio.dart';
-import 'package:just_audio_background/just_audio_background.dart';
 
 import 'liked_screen.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  await JustAudioBackground.init(
-    androidNotificationChannelId: 'com.example.first_app.audio',
-    androidNotificationChannelName: 'Music playback',
-    androidNotificationOngoing: true,
-  );
   runApp(const MyApp());
 }
-
-const List<Map<String, String>> musicList = [
-  {
-    'title': 'Test 1',
-    'file': 'audio/test1.mp3',
-    'author': 'Ahmed',
-    'description':
-        'This track blends smooth melodies with subtle ambient textures, creating a relaxing yet engaging listening experience. The composition evolves gradually, starting with soft tones that build into a layered arrangement of rhythm and harmony. It captures a sense of calm and introspection, making it perfect for late-night listening or focused work sessions. The artist experimented with different sound elements, combining digital beats with organic instruments to achieve a balanced and immersive soundscape.'
-  },
-  {
-    'title': 'Test 2',
-    'file': 'audio/test_2.mp3',
-    'author': 'John Doe',
-    'description':
-        'An energetic and dynamic piece that fuses modern electronic sounds with classic musical influences. From the very beginning, the track introduces a catchy rhythm that keeps evolving with unexpected transitions and vibrant layers. The production highlights creativity and attention to detail, with each section offering something new to the listener. Whether you are working out, driving, or just exploring new music, this track delivers a powerful and uplifting vibe that stays memorable long after it ends.'
-  },
-];
 
 class MyApp extends StatelessWidget {
   const MyApp({super.key});
@@ -55,14 +32,15 @@ class MusicPlayer extends StatefulWidget {
 
 class _MusicPlayerState extends State<MusicPlayer>
     with SingleTickerProviderStateMixin {
-  final AudioPlayer _audioPlayer = AudioPlayer();
-  final Completer<void> _playerReady = Completer<void>();
+  final AudioPlayerService _audioService = AudioPlayerService.instance;
   late final AnimationController _rotationController;
-  StreamSubscription<PlayerException>? _errorSubscription;
 
-  bool isPlaying = false;
   bool showControls = false;
-  int currentMusicIndex = 0;
+
+  AudioPlayerState get playerState => _audioService.stateNotifier.value;
+  bool get isPlaying => playerState.isPlaying;
+  bool get hasTracks => playerState.hasTracks;
+  bool get permissionGranted => playerState.permissionGranted;
 
   @override
   void initState() {
@@ -73,64 +51,31 @@ class _MusicPlayerState extends State<MusicPlayer>
       duration: const Duration(seconds: 10),
     );
 
-    _configurePlayer();
+    _audioService.stateNotifier.addListener(_handlePlaybackStateChanged);
 
-    _audioPlayer.playerStateStream.listen((state) {
-      if (!mounted) return;
-      final playing = state.playing;
-      setState(() {
-        isPlaying = playing;
-      });
-      if (playing) {
-        _rotationController.repeat();
-      } else {
-        _rotationController.stop();
-      }
-    });
-
-    _audioPlayer.currentIndexStream.listen((index) {
-      if (!mounted || index == null) return;
-      setState(() {
-        currentMusicIndex = index;
-      });
-    });
-
-    _errorSubscription = _audioPlayer.errorStream.listen((error) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Audio error: ${error.message}')),
-      );
-    });
+    unawaited(_initializeAudio());
   }
 
-  Future<void> _configurePlayer() async {
+  Future<void> _initializeAudio() async {
     try {
-      final playlist = [
-        for (var i = 0; i < musicList.length; i++)
-          AudioSource.asset(
-            'assets/${musicList[i]['file']!}',
-            tag: MediaItem(
-              id: '$i',
-              album: 'First App',
-              title: musicList[i]['title']!,
-              artist: musicList[i]['author'],
-            ),
-          ),
-      ];
-
-      await _audioPlayer.setLoopMode(LoopMode.all);
-      await _audioPlayer.setAudioSources(
-        playlist,
-        initialIndex: currentMusicIndex,
+      await _audioService.initialize();
+    } catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Audio error: $error')),
       );
+    }
+  }
 
-      if (!_playerReady.isCompleted) {
-        _playerReady.complete();
-      }
-    } catch (error, stackTrace) {
-      if (!_playerReady.isCompleted) {
-        _playerReady.completeError(error, stackTrace);
-      }
+  void _handlePlaybackStateChanged() {
+    if (!mounted) return;
+
+    setState(() {});
+
+    if (isPlaying) {
+      _rotationController.repeat();
+    } else {
+      _rotationController.stop();
     }
   }
 
@@ -141,42 +86,37 @@ class _MusicPlayerState extends State<MusicPlayer>
 
   @override
   void dispose() {
-    _errorSubscription?.cancel();
-    _audioPlayer.dispose();
+    _audioService.stateNotifier.removeListener(_handlePlaybackStateChanged);
     _rotationController.dispose();
     super.dispose();
   }
 
   Future<void> playPause() async {
+    if (!hasTracks) return;
     showControls = true;
     setState(() {});
-
-    await _playerReady.future;
-
-    if (isPlaying) {
-      await _audioPlayer.pause();
-    } else {
-      await _audioPlayer.play();
-    }
+    await _audioService.playPause();
   }
 
   Future<void> nextSong() async {
-    await _playerReady.future;
-    final nextIndex = (currentMusicIndex + 1) % musicList.length;
-    await _audioPlayer.seek(Duration.zero, index: nextIndex);
-    await _audioPlayer.play();
+    if (!hasTracks) return;
+    await _audioService.next();
   }
 
   Future<void> previousSong() async {
-    await _playerReady.future;
-    final previousIndex =
-        (currentMusicIndex - 1 + musicList.length) % musicList.length;
-    await _audioPlayer.seek(Duration.zero, index: previousIndex);
-    await _audioPlayer.play();
+    if (!hasTracks) return;
+    await _audioService.previous();
   }
 
   @override
   Widget build(BuildContext context) {
+    final currentSong = playerState.track;
+    final statusMessage = !permissionGranted
+        ? 'Allow audio access to read songs from your phone.'
+        : !hasTracks
+            ? 'No audio files were found on this device.'
+            : null;
+
     return Scaffold(
       appBar: AppBar(
         title: const Text('Music Player'),
@@ -196,6 +136,16 @@ class _MusicPlayerState extends State<MusicPlayer>
                 ),
               ),
               const SizedBox(height: 30),
+              if (statusMessage != null)
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 24),
+                  child: Text(
+                    statusMessage,
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(fontSize: 16),
+                  ),
+                ),
+              if (statusMessage != null) const SizedBox(height: 24),
               showControls
                   ? Column(
                       children: [
@@ -224,57 +174,65 @@ class _MusicPlayerState extends State<MusicPlayer>
                           ],
                         ),
                         const SizedBox(height: 20),
-                        Row(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            IconButton(
-                              icon: FutureBuilder<bool>(
-                                future: isFavorite(
-                                  musicList[currentMusicIndex]['title']!,
+                        Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 24),
+                          child: Row(
+                            children: [
+                              IconButton(
+                                icon: FutureBuilder<bool>(
+                                  future: isFavorite(currentSong.title),
+                                  builder: (context, snapshot) {
+                                    final isFav = snapshot.data ?? false;
+                                    return Icon(
+                                      isFav
+                                          ? Icons.favorite
+                                          : Icons.favorite_border,
+                                      color: Colors.red,
+                                    );
+                                  },
                                 ),
-                                builder: (context, snapshot) {
-                                  final isFav = snapshot.data ?? false;
-                                  return Icon(
-                                    isFav
-                                        ? Icons.favorite
-                                        : Icons.favorite_border,
-                                    color: Colors.red,
+                                onPressed: () async {
+                                  if (currentSong.title.isEmpty) return;
+                                  final alreadyFav = await isFavorite(currentSong.title);
+
+                                  if (alreadyFav) {
+                                    await DatabaseHelper.instance.deleteFavorite(
+                                      currentSong.title,
+                                    );
+                                  } else {
+                                    await DatabaseHelper.instance.insertFavorite(
+                                      currentSong.toMap(),
+                                    );
+                                  }
+
+                                  setState(() {});
+                                },
+                                onLongPress: () {
+                                  Navigator.push(
+                                    context,
+                                    MaterialPageRoute(
+                                      builder: (context) => const LikedScreen(),
+                                    ),
                                   );
                                 },
                               ),
-                              onPressed: () async {
-                                final song = musicList[currentMusicIndex];
-                                final title = song['title']!;
-                                final alreadyFav = await isFavorite(title);
-
-                                if (alreadyFav) {
-                                  await DatabaseHelper.instance
-                                      .deleteFavorite(title);
-                                } else {
-                                  await DatabaseHelper.instance
-                                      .insertFavorite(song);
-                                }
-
-                                setState(() {});
-                              },
-                              onLongPress: () {
-                                Navigator.push(
-                                  context,
-                                  MaterialPageRoute(
-                                    builder: (context) => const LikedScreen(),
+                              const SizedBox(width: 8),
+                              Expanded(
+                                child: Text(
+                                  currentSong.title.isEmpty
+                                      ? 'No track selected'
+                                      : currentSong.title,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  textAlign: TextAlign.center,
+                                  style: const TextStyle(
+                                    fontSize: 18,
+                                    fontWeight: FontWeight.w600,
                                   ),
-                                );
-                              },
-                            ),
-                            const SizedBox(width: 8),
-                            Text(
-                              musicList[currentMusicIndex]['title']!,
-                              style: const TextStyle(
-                                fontSize: 18,
-                                fontWeight: FontWeight.w600,
+                                ),
                               ),
-                            ),
-                          ],
+                            ],
+                          ),
                         ),
                       ],
                     )
